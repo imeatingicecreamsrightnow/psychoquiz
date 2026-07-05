@@ -295,6 +295,54 @@
   .tag-bad{background:var(--bad-bg); color:var(--bad);}
   .final-actions{display:flex; gap:10px; margin-top:8px;}
 
+  /* --- Saved sets --- */
+  .saved-empty{
+    font-size:14px;
+    color:var(--ink-soft);
+  }
+  .saved-list{display:flex; flex-direction:column; gap:8px;}
+  .saved-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:12px 14px;
+    border:1.5px solid var(--line);
+    border-radius:10px;
+  }
+  .saved-info{min-width:0;}
+  .saved-name{
+    font-weight:600;
+    font-size:14.5px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .saved-meta{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    margin-top:2px;
+  }
+  .saved-actions{display:flex; gap:6px; flex:0 0 auto;}
+  .btn-small{
+    padding:8px 12px;
+    font-size:13px;
+  }
+  .btn-small.danger{color:var(--bad);}
+  .btn-small.danger:hover{background:var(--bad-bg); border-color:var(--bad);}
+  .name-field{
+    width:100%;
+    padding:10px 14px;
+    font-family:'Inter',sans-serif;
+    font-size:14.5px;
+    border:1.5px solid var(--line);
+    border-radius:9px;
+    outline:none;
+    margin-bottom:14px;
+    background:#FCFBF8;
+  }
+  .name-field:focus{border-color:var(--teal); background:#fff;}
+
   @media (max-width:480px){
     .card{padding:20px;}
     .q-text{font-size:18.5px;}
@@ -310,12 +358,20 @@
 
   <!-- SCREEN 1: PASTE -->
   <div class="screen active" id="screen-paste">
+    <div class="card" id="savedSetsCard">
+      <div class="paste-label">Zapisane zestawy</div>
+      <div id="savedSetsWrap"><p class="saved-empty">Nie masz jeszcze żadnych zapisanych zestawów — wklej dane poniżej i zbuduj pierwszy.</p></div>
+    </div>
+
     <div class="card">
+      <div class="paste-label">Nazwa zestawu</div>
+      <input type="text" class="name-field" id="setNameField" placeholder="np. Agorafobia i lęk paniczny">
       <div class="paste-label">Twoje dane</div>
       <div class="paste-box" id="pasteBox" contenteditable="true" data-placeholder="Wklej tutaj skopiowane z Google Sheets pytania i odpowiedzi..."></div>
       <div class="hint">
         <b>Jak to sformatować:</b> jedna pozycja w wierszu, blok pytania oddzielony pustym wierszem od następnego. Pogrubione pytanie i pogrubiona poprawna odpowiedź zostaną rozpoznane automatycznie po wklejeniu z Google Sheets.<br><br>
-        Jeśli wklejasz zwykły tekst bez pogrubień, oznacz poprawną odpowiedź, dopisując gwiazdkę na początku wiersza, np. <code>*Lękiem przed otwartą przestrzenią...</code>
+        Jeśli wklejasz zwykły tekst bez pogrubień, oznacz poprawną odpowiedź, dopisując gwiazdkę na początku wiersza, np. <code>*Lękiem przed otwartą przestrzenią...</code><br><br>
+        Zestaw zapisze się automatycznie w tej przeglądarce po kliknięciu "Stwórz quiz" — następnym razem znajdziesz go na górze strony, bez ponownego wklejania.
       </div>
       <div class="error-msg" id="errorMsg"></div>
       <div class="row-actions">
@@ -364,6 +420,95 @@ const pasteBox = document.getElementById('pasteBox');
 const buildBtn = document.getElementById('buildBtn');
 const sampleBtn = document.getElementById('sampleBtn');
 const errorMsg = document.getElementById('errorMsg');
+const setNameField = document.getElementById('setNameField');
+const savedSetsWrap = document.getElementById('savedSetsWrap');
+
+const STORAGE_KEY = 'quizownik_sets_v1';
+let activeSetId = null;
+
+function getSavedSets(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){
+    return {};
+  }
+}
+
+function saveSets(sets){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sets));
+  }catch(e){
+    console.error('Nie udało się zapisać zestawu', e);
+  }
+}
+
+function saveCurrentSet(name, questions){
+  const sets = getSavedSets();
+  const id = activeSetId || ('set_' + Date.now());
+  sets[id] = {
+    name: name || 'Zestaw z ' + new Date().toLocaleDateString('pl-PL'),
+    questions: questions,
+    savedAt: Date.now()
+  };
+  saveSets(sets);
+  activeSetId = id;
+  renderSavedSets();
+}
+
+function deleteSet(id){
+  const sets = getSavedSets();
+  delete sets[id];
+  saveSets(sets);
+  renderSavedSets();
+}
+
+function loadSet(id){
+  const sets = getSavedSets();
+  const set = sets[id];
+  if (!set) return;
+  activeSetId = id;
+  originalQuestions = set.questions;
+  buildQuizFromOriginal();
+}
+
+function escapeHtmlText(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderSavedSets(){
+  const sets = getSavedSets();
+  const ids = Object.keys(sets).sort((a,b) => (sets[b].savedAt||0) - (sets[a].savedAt||0));
+  if (ids.length === 0){
+    savedSetsWrap.innerHTML = '<p class="saved-empty">Nie masz jeszcze żadnych zapisanych zestawów — wklej dane poniżej i zbuduj pierwszy.</p>';
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'saved-list';
+  ids.forEach(id => {
+    const set = sets[id];
+    const item = document.createElement('div');
+    item.className = 'saved-item';
+    item.innerHTML =
+      '<div class="saved-info">' +
+        '<div class="saved-name">' + escapeHtmlText(set.name) + '</div>' +
+        '<div class="saved-meta">' + set.questions.length + ' pyta' + (set.questions.length === 1 ? 'nie' : 'ń') + '</div>' +
+      '</div>' +
+      '<div class="saved-actions">' +
+        '<button class="btn-ghost btn-small" data-action="run">Uruchom</button>' +
+        '<button class="btn-ghost btn-small danger" data-action="delete">Usuń</button>' +
+      '</div>';
+    item.querySelector('[data-action="run"]').addEventListener('click', () => loadSet(id));
+    item.querySelector('[data-action="delete"]').addEventListener('click', () => {
+      if (confirm('Usunąć zestaw "' + set.name + '"?')) deleteSet(id);
+    });
+    list.appendChild(item);
+  });
+  savedSetsWrap.innerHTML = '';
+  savedSetsWrap.appendChild(list);
+}
 
 const screenPaste = document.getElementById('screen-paste');
 const screenQuiz = document.getElementById('screen-quiz');
@@ -516,6 +661,8 @@ buildBtn.addEventListener('click', () => {
   }
 
   originalQuestions = questions;
+  activeSetId = null;
+  saveCurrentSet(setNameField.value.trim(), questions);
   if (warnings.length){
     errorMsg.textContent = warnings.join(' ');
     errorMsg.style.display = 'block';
@@ -651,9 +798,14 @@ retryBtn.addEventListener('click', () => {
 
 newDataBtn.addEventListener('click', () => {
   pasteBox.innerHTML = '';
+  setNameField.value = '';
+  activeSetId = null;
   errorMsg.style.display = 'none';
+  renderSavedSets();
   showScreen(screenPaste);
 });
+
+renderSavedSets();
 </script>
 </body>
 </html>
